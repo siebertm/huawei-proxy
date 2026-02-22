@@ -1,0 +1,248 @@
+# Huawei Solar Modbus Caching Proxy Configuration
+#
+# This proxy sits between Home Assistant (huawei_solar integration) and your
+# Huawei SUN2000 inverter. It continuously reads registers from the inverter
+# (with configurable pauses between reads) and serves cached values instantly
+# to HA.
+#
+# See REGISTERS.md for the full register map and strategy documentation.
+
+# Connection to the Huawei SUN2000 inverter
+inverter:
+  host: "192.168.200.1"     # Inverter IP address
+  port: 502                  # Modbus TCP port (default: 502)
+  unit_id: 1                 # Modbus slave/unit ID (default: 1)
+  timeout_ms: 5000           # Read/write timeout in milliseconds
+
+# Modbus TCP server that HA connects to
+server:
+  listen: ":502"             # Listen address (default: ":502")
+                             # Use ":1502" if running unprivileged
+
+# Polling configuration
+polling:
+  read_pause_ms: 500         # Minimum milliseconds between Modbus reads
+                             # The inverter needs this gap to stay responsive
+  slow_interval_s: 300       # Seconds between slow group polls (default: 300 = 5min)
+
+# When true, cache misses are forwarded to the inverter (with pause).
+# This handles HA's device detection at startup for registers not in any group.
+# When false, cache misses return Modbus exception 0x02 (Illegal Data Address).
+forward_unknown_reads: true
+
+# Log level: "debug", "info", "warn", "error"
+log_level: "info"
+
+# Register groups to poll from the inverter.
+# Each group is one Modbus read_holding_registers call.
+# Max 125 registers per group (Modbus protocol limit).
+#
+# poll: "fast" = every cycle (~3-4s), "slow" = every slow_interval_s
+#
+# Remove groups you don't need (e.g., storage groups if no battery).
+register_groups:
+
+  # ── FAST GROUPS (operational data, every cycle) ──────────────────────
+
+  - name: inverter_state
+    address: 32000
+    count: 11
+    poll: fast
+    # state_1, state_2, state_3, alarm_1/2/3
+
+  - name: pv_strings
+    address: 32016
+    count: 48
+    poll: fast
+    # PV 1-24 voltage + current (2 regs per string)
+    # Reduce count if you have fewer strings (e.g., 8 for 4 strings)
+
+  - name: grid_power
+    address: 32064
+    count: 33
+    poll: fast
+    # input_power, line/phase voltages, currents, active/reactive power,
+    # power_factor, grid_frequency, efficiency, temperature, device_status,
+    # fault_code, startup_time, shutdown_time, active_power_fast
+
+  - name: energy_yield
+    address: 32106
+    count: 14
+    poll: fast
+    # accumulated_yield_energy, total_dc_input_power,
+    # hourly/daily/monthly/yearly yield
+
+  - name: storage_unit_1
+    address: 37000
+    count: 70
+    poll: fast
+    # Storage unit 1: running status, charge/discharge power, SOC,
+    # working mode, rated power, temperatures, versions, serial, totals
+    # REMOVE if no battery installed
+
+  - name: meter
+    address: 37100
+    count: 39
+    poll: fast
+    # Power meter: status, voltages (A/B/C), currents, active/reactive
+    # power, power factor, frequency, exported/accumulated energy,
+    # line voltages, per-phase power
+    # REMOVE if no external power meter
+
+  - name: storage_aggregated
+    address: 37758
+    count: 30
+    poll: fast
+    # Aggregated storage: rated capacity, SOC, running status,
+    # bus voltage/current, charge/discharge power, daily totals
+    # REMOVE if no battery installed
+
+  # ── SLOW GROUPS (device info & config, every 5 minutes) ─────────────
+
+  - name: device_info_1
+    address: 30000
+    count: 65
+    poll: slow
+    # model_name, serial_number, pn, firmware_version, software_version
+
+  - name: device_info_2
+    address: 30068
+    count: 44
+    poll: slow
+    # protocol_version, model_id, nb_pv_strings, rated_power, P_max, etc.
+
+  - name: device_features
+    address: 30206
+    count: 14
+    poll: slow
+    # hardware_functional_unit_conf_id, subdevice flags, feature masks
+
+  - name: hw_versions_1
+    address: 31000
+    count: 70
+    poll: slow
+    # hardware_version, monitoring_board_sn, monitoring_software_version,
+    # master_dsp_version, slave_dsp_version
+
+  - name: hw_versions_2
+    address: 31070
+    count: 90
+    poll: slow
+    # cpld_version, afci_version, builtin_pid_version, dc_mbus_version,
+    # el_module_version, afci_2_version
+
+  - name: diagnostics
+    address: 32172
+    count: 20
+    poll: slow
+    # alarm SNs, bus voltages, PV voltages
+
+  - name: mppt_yields
+    address: 32212
+    count: 20
+    poll: slow
+    # cumulative DC energy yield per MPPT (1-10)
+
+  - name: component_health
+    address: 35000
+    count: 45
+    poll: slow
+    # capbank/fan runtime, module temps, DCI, leakage, bus voltages
+
+  - name: optimizer_info
+    address: 37200
+    count: 2
+    poll: slow
+    # nb_optimizers, nb_online_optimizers
+
+  - name: storage_unit_2
+    address: 37700
+    count: 58
+    poll: slow
+    # Storage unit 2: serial, SOC, running status, charge/discharge,
+    # bus voltage/current, temperature, totals
+    # REMOVE if no second battery unit
+
+  - name: storage_versions
+    address: 37799
+    count: 30
+    poll: slow
+    # Software versions for storage units 1 and 2
+
+  - name: battery_soh
+    address: 37920
+    count: 8
+    poll: slow
+    # SOH calibration status for all battery packs
+
+  - name: battery_packs_1
+    address: 38200
+    count: 84
+    poll: slow
+    # Unit 1 packs 1-2: serial, firmware, status, SOC, power, V, I, totals
+
+  - name: battery_packs_2
+    address: 38284
+    count: 84
+    poll: slow
+    # Unit 1 pack 3 + Unit 2 pack 1
+
+  - name: battery_packs_3
+    address: 38368
+    count: 96
+    poll: slow
+    # Unit 2 packs 2-3 + all pack temperatures (38452-38463)
+
+  - name: system_time
+    address: 40000
+    count: 2
+    poll: slow
+
+  - name: inverter_config
+    address: 40122
+    count: 10
+    poll: slow
+    # power_factor, reactive power, active power derating
+
+  - name: startup_shutdown
+    address: 40200
+    count: 2
+    poll: slow
+
+  - name: grid_mppt_config
+    address: 42054
+    count: 4
+    poll: slow
+    # MPPT multimodal scanning, scanning interval, predicted power
+
+  - name: storage_config_1
+    address: 47000
+    count: 109
+    poll: slow
+    # storage product models, working mode, TOU periods, charging limits,
+    # charge from grid, forcible charge/discharge, unit numbers
+
+  - name: storage_config_2
+    address: 47200
+    count: 100
+    poll: slow
+    # fixed charge/discharge periods, charge from grid power,
+    # forcible settings, TOU charging/discharging periods
+
+  - name: power_control
+    address: 47415
+    count: 4
+    poll: slow
+    # active_power_control_mode, maximum_feed_grid_power
+
+  - name: storage_config_3
+    address: 47750
+    count: 6
+    poll: slow
+    # battery pack numbers
+
+  - name: capacity_control
+    address: 47954
+    count: 67
+    poll: slow
+    # capacity control mode, SOC peak shaving, periods

@@ -1,2 +1,8 @@
 # Cloned reference repos
 huawei_solar/
+
+# Binary
+huawei-solar-proxy
+
+# Config with real credentials
+config.yaml
