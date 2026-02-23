@@ -11,6 +11,7 @@ import (
 type Config struct {
 	Inverter            InverterConfig  `yaml:"inverter"`
 	Server              ServerConfig    `yaml:"server"`
+	Web                 WebConfig       `yaml:"web"`
 	Polling             PollingConfig   `yaml:"polling"`
 	ForwardUnknownReads bool            `yaml:"forward_unknown_reads"`
 	RegisterGroups      []RegisterGroup `yaml:"register_groups"`
@@ -26,6 +27,10 @@ type InverterConfig struct {
 }
 
 type ServerConfig struct {
+	Listen string `yaml:"listen"`
+}
+
+type WebConfig struct {
 	Listen string `yaml:"listen"`
 }
 
@@ -71,6 +76,9 @@ func LoadConfig(path string) (*Config, error) {
 		},
 		Server: ServerConfig{
 			Listen: ":502",
+		},
+		Web: WebConfig{
+			Listen: ":8080",
 		},
 		Polling: PollingConfig{
 			ReadPauseMs:   500,

@@ -10,13 +10,21 @@ import (
 	_ "github.com/ncruces/go-sqlite3/embed"
 )
 
+// CachedRegister represents a single register value with its update timestamp.
+type CachedRegister struct {
+	Address   uint16
+	Value     uint16
+	UpdatedAt time.Time
+}
+
 // RegisterCache is a SQLite-backed cache of Modbus register values.
 // Keys are register addresses, values are raw uint16 register values.
 type RegisterCache struct {
-	db       *sql.DB
+	db         *sql.DB
 	stmtUpsert *sql.Stmt
 	stmtGet    *sql.Stmt
 	stmtCount  *sql.Stmt
+	stmtAll    *sql.Stmt
 }
 
 func NewRegisterCache(dbPath string) (*RegisterCache, error) {
@@ -71,11 +79,18 @@ func NewRegisterCache(dbPath string) (*RegisterCache, error) {
 		return nil, fmt.Errorf("prepare count: %w", err)
 	}
 
+	stmtAll, err := db.Prepare(`SELECT address, value, updated_at FROM registers ORDER BY address`)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("prepare all: %w", err)
+	}
+
 	return &RegisterCache{
 		db:         db,
 		stmtUpsert: stmtUpsert,
 		stmtGet:    stmtGet,
 		stmtCount:  stmtCount,
+		stmtAll:    stmtAll,
 	}, nil
 }
 
@@ -84,7 +99,35 @@ func (c *RegisterCache) Close() error {
 	c.stmtUpsert.Close()
 	c.stmtGet.Close()
 	c.stmtCount.Close()
+	c.stmtAll.Close()
 	return c.db.Close()
+}
+
+// All returns all cached registers ordered by address.
+func (c *RegisterCache) All() []CachedRegister {
+	rows, err := c.stmtAll.Query()
+	if err != nil {
+		slog.Warn("cache all: query", "error", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var result []CachedRegister
+	for rows.Next() {
+		var addr, val int
+		var updatedAt string
+		if err := rows.Scan(&addr, &val, &updatedAt); err != nil {
+			slog.Warn("cache all: scan", "error", err)
+			return nil
+		}
+		t, _ := time.Parse(time.RFC3339Nano, updatedAt)
+		result = append(result, CachedRegister{
+			Address:   uint16(addr),
+			Value:     uint16(val),
+			UpdatedAt: t,
+		})
+	}
+	return result
 }
 
 // Set stores register values starting at the given address.

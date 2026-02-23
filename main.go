@@ -41,6 +41,7 @@ func main() {
 	slog.Info("config loaded",
 		"inverter", cfg.InverterAddr(),
 		"server_listen", cfg.Server.Listen,
+		"web_listen", cfg.Web.Listen,
 		"register_groups", len(cfg.RegisterGroups),
 		"read_pause_ms", cfg.Polling.ReadPauseMs,
 		"slow_interval_s", cfg.Polling.SlowIntervalS,
@@ -52,6 +53,25 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Create cache
+	cache, err := NewRegisterCache(cfg.CachePath)
+	if err != nil {
+		slog.Error("failed to open cache database", "path", cfg.CachePath, "error", err)
+		os.Exit(1)
+	}
+	defer cache.Close()
+
+	// Start web UI early so it's available during startup
+	var web *WebServer
+	if cfg.Web.Listen != "" {
+		web = NewWebServer(cfg, cache)
+		go func() {
+			if err := web.ListenAndServe(ctx); err != nil {
+				slog.Error("web server error", "error", err)
+			}
+		}()
+	}
+
 	// Connect to inverter
 	slog.Info("connecting to inverter", "address", cfg.InverterAddr(), "unit_id", cfg.Inverter.UnitID)
 	inverterClient, err := NewInverterClient(cfg)
@@ -62,14 +82,6 @@ func main() {
 	defer inverterClient.Close()
 	slog.Info("connected to inverter")
 
-	// Create cache
-	cache, err := NewRegisterCache(cfg.CachePath)
-	if err != nil {
-		slog.Error("failed to open cache database", "path", cfg.CachePath, "error", err)
-		os.Exit(1)
-	}
-	defer cache.Close()
-
 	// Create reader and do initial scan
 	reader := NewReader(cfg, inverterClient, cache)
 
@@ -79,7 +91,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Start reader loop
+	// Start reader loop — also makes stats available to the web UI
+	if web != nil {
+		web.SetReader(reader)
+	}
 	go reader.Run(ctx)
 
 	// Start Modbus TCP server

@@ -6,3 +6,8 @@ huawei-solar-proxy
 
 # Config with real credentials
 config.yaml
+
+# SQLite cache
+cache.db
+cache.db-shm
+cache.db-wal

@@ -4,8 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 )
+
+// ReaderStats contains runtime statistics from the polling loop.
+type ReaderStats struct {
+	CycleCount    int64
+	LastCycleTime time.Time
+	LastCycleDur  time.Duration
+}
 
 // Reader continuously polls register groups from the inverter
 // and updates the cache. Fast groups are read every cycle, slow
@@ -16,6 +24,10 @@ type Reader struct {
 	cache      *RegisterCache
 	fastGroups []RegisterGroup
 	slowGroups []RegisterGroup
+
+	cycleCount    atomic.Int64
+	lastCycleTime atomic.Value // time.Time
+	lastCycleDur  atomic.Int64 // nanoseconds
 }
 
 func NewReader(cfg *Config, client *InverterClient, cache *RegisterCache) *Reader {
@@ -130,9 +142,33 @@ func (r *Reader) Run(ctx context.Context) {
 			lastSlowPoll = time.Now()
 		}
 
+		cycleDur := time.Since(cycleStart)
+		r.cycleCount.Add(1)
+		r.lastCycleTime.Store(time.Now())
+		r.lastCycleDur.Store(int64(cycleDur))
+
 		slog.Debug("fast cycle complete",
-			"duration", time.Since(cycleStart).Round(time.Millisecond),
+			"duration", cycleDur.Round(time.Millisecond),
 			"cached_registers", r.cache.Size(),
 		)
 	}
 }
+
+// Stats returns current runtime statistics.
+func (r *Reader) Stats() ReaderStats {
+	var lastTime time.Time
+	if v := r.lastCycleTime.Load(); v != nil {
+		lastTime = v.(time.Time)
+	}
+	return ReaderStats{
+		CycleCount:    r.cycleCount.Load(),
+		LastCycleTime: lastTime,
+		LastCycleDur:  time.Duration(r.lastCycleDur.Load()),
+	}
+}
+
+// FastGroupCount returns the number of fast polling groups.
+func (r *Reader) FastGroupCount() int { return len(r.fastGroups) }
+
+// SlowGroupCount returns the number of slow polling groups.
+func (r *Reader) SlowGroupCount() int { return len(r.slowGroups) }

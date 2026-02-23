@@ -19,6 +19,11 @@ server:
   listen: ":502"             # Listen address (default: ":502")
                              # Use ":1502" if running unprivileged
 
+# Web status UI
+web:
+  listen: ":8080"             # Listen address for the web UI (default: ":8080")
+                              # Set to "" to disable the web UI
+
 # Polling configuration
 polling:
   read_pause_ms: 500         # Minimum milliseconds between Modbus reads
