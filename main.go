@@ -11,10 +11,17 @@ import (
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to config file")
+	haOptionsPath := flag.String("ha-options", "", "path to HA add-on options.json (overrides -config)")
 	flag.Parse()
 
 	// Load config
-	cfg, err := LoadConfig(*configPath)
+	var cfg *Config
+	var err error
+	if *haOptionsPath != "" {
+		cfg, err = LoadHAOptions(*haOptionsPath)
+	} else {
+		cfg, err = LoadConfig(*configPath)
+	}
 	if err != nil {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)

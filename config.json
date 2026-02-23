@@ -1,0 +1,39 @@
+{
+  "name": "Huawei Solar Proxy",
+  "version": "1.0.0",
+  "slug": "huawei-solar-proxy",
+  "description": "Modbus TCP caching proxy for Huawei SUN2000 solar inverters",
+  "url": "https://github.com/siebertm/huawei-solar-proxy",
+  "arch": ["amd64", "aarch64", "armv7"],
+  "host_network": true,
+  "init": false,
+  "options": {
+    "inverter_host": "",
+    "inverter_port": 502,
+    "unit_ids": [1],
+    "modbus_listen_port": 502,
+    "web_listen_port": 8080,
+    "read_pause_ms": 500,
+    "slow_interval_s": 300,
+    "forward_unknown_reads": true,
+    "log_level": "info",
+    "cache_ttl_h": 2,
+    "has_battery": false,
+    "has_power_meter": false
+  },
+  "schema": {
+    "inverter_host": "str",
+    "inverter_port": "port",
+    "unit_ids": ["int"],
+    "modbus_listen_port": "port",
+    "web_listen_port": "port",
+    "read_pause_ms": "int(100,5000)",
+    "slow_interval_s": "int(60,3600)",
+    "forward_unknown_reads": "bool",
+    "log_level": "list(debug|info|warn|error)",
+    "cache_ttl_h": "int(1,168)",
+    "has_battery": "bool",
+    "has_power_meter": "bool"
+  },
+  "webui": "http://[HOST]:[PORT:8080]"
+}

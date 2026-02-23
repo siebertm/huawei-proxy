@@ -1,12 +1,17 @@
+ARG BUILD_FROM
 FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go ./
-RUN CGO_ENABLED=0 go build -o /huawei-solar-proxy .
 
-FROM alpine:3.21
+ARG TARGETARCH
+ARG TARGETVARIANT
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} GOARM=${TARGETVARIANT#v} \
+    go build -o /huawei-solar-proxy .
+
+FROM ${BUILD_FROM}
+
 COPY --from=builder /huawei-solar-proxy /usr/local/bin/
-ENTRYPOINT ["huawei-solar-proxy"]
-CMD ["-config", "/etc/huawei-solar-proxy/config.yaml"]
+CMD ["huawei-solar-proxy", "--ha-options", "/data/options.json"]
