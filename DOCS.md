@@ -19,7 +19,7 @@ The Huawei SUN2000 inverter requires a 500ms pause between Modbus reads and only
 ### Optional
 
 - **inverter_port**: Modbus TCP port on the inverter (default: `502`)
-- **unit_ids**: Modbus unit/slave IDs to poll (default: `[1]`). Use `[1, 16]` for two inverters on the same connection.
+- **unit_ids**: Comma-separated Modbus unit/slave IDs to poll (default: `1`). Use `1,16` for two inverters on the same connection.
 - **modbus_listen_port**: Port the proxy listens on for Modbus TCP connections from HA (default: `502`)
 - **web_listen_port**: Port for the web status UI (default: `8080`)
 - **read_pause_ms**: Minimum milliseconds between Modbus reads (default: `500`). The inverter needs this gap to stay responsive.

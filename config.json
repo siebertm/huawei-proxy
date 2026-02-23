@@ -10,7 +10,7 @@
   "options": {
     "inverter_host": "",
     "inverter_port": 502,
-    "unit_ids": [1],
+    "unit_ids": "1",
     "modbus_listen_port": 502,
     "web_listen_port": 8080,
     "read_pause_ms": 500,
@@ -24,7 +24,7 @@
   "schema": {
     "inverter_host": "str",
     "inverter_port": "port",
-    "unit_ids": ["int"],
+    "unit_ids": "str",
     "modbus_listen_port": "port",
     "web_listen_port": "port",
     "read_pause_ms": "int(100,5000)",
