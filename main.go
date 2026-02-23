@@ -45,6 +45,7 @@ func main() {
 		"read_pause_ms", cfg.Polling.ReadPauseMs,
 		"slow_interval_s", cfg.Polling.SlowIntervalS,
 		"forward_unknown_reads", cfg.ForwardUnknownReads,
+		"cache_path", cfg.CachePath,
 		"log_level", cfg.LogLevel,
 	)
 
@@ -62,7 +63,12 @@ func main() {
 	slog.Info("connected to inverter")
 
 	// Create cache
-	cache := NewRegisterCache()
+	cache, err := NewRegisterCache(cfg.CachePath)
+	if err != nil {
+		slog.Error("failed to open cache database", "path", cfg.CachePath, "error", err)
+		os.Exit(1)
+	}
+	defer cache.Close()
 
 	// Create reader and do initial scan
 	reader := NewReader(cfg, inverterClient, cache)

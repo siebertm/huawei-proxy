@@ -33,6 +33,10 @@ forward_unknown_reads: true
 # Log level: "debug", "info", "warn", "error"
 log_level: "info"
 
+# Path to the SQLite cache database file (default: "cache.db").
+# Use ":memory:" for a pure in-memory cache (no persistence across restarts).
+cache_path: "cache.db"
+
 # Register groups to poll from the inverter.
 # Each group is one Modbus read_holding_registers call.
 # Max 125 registers per group (Modbus protocol limit).

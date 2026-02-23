@@ -1,35 +1,114 @@
 package main
 
 import (
-	"sync"
+	"database/sql"
+	"fmt"
+	"log/slog"
 	"time"
+
+	_ "github.com/ncruces/go-sqlite3/driver"
+	_ "github.com/ncruces/go-sqlite3/embed"
 )
 
-// RegisterCache is a thread-safe cache of Modbus register values.
+// RegisterCache is a SQLite-backed cache of Modbus register values.
 // Keys are register addresses, values are raw uint16 register values.
 type RegisterCache struct {
-	mu         sync.RWMutex
-	registers  map[uint16]uint16
-	timestamps map[uint16]time.Time
+	db       *sql.DB
+	stmtUpsert *sql.Stmt
+	stmtGet    *sql.Stmt
+	stmtCount  *sql.Stmt
 }
 
-func NewRegisterCache() *RegisterCache {
-	return &RegisterCache{
-		registers:  make(map[uint16]uint16),
-		timestamps: make(map[uint16]time.Time),
+func NewRegisterCache(dbPath string) (*RegisterCache, error) {
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite db: %w", err)
 	}
+
+	// Single connection — SQLite doesn't benefit from a pool and this
+	// avoids "database is locked" under concurrent access.
+	db.SetMaxOpenConns(1)
+
+	// Performance pragmas — this is a cache, so durability is not critical.
+	for _, pragma := range []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA synchronous=NORMAL",
+		"PRAGMA busy_timeout=5000",
+	} {
+		if _, err := db.Exec(pragma); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("exec %s: %w", pragma, err)
+		}
+	}
+
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS registers (
+			address  INTEGER PRIMARY KEY,
+			value    INTEGER NOT NULL,
+			updated_at TEXT NOT NULL
+		)
+	`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("create table: %w", err)
+	}
+
+	stmtUpsert, err := db.Prepare(`INSERT INTO registers (address, value, updated_at) VALUES (?, ?, ?)
+		ON CONFLICT(address) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("prepare upsert: %w", err)
+	}
+
+	stmtGet, err := db.Prepare(`SELECT address, value FROM registers WHERE address >= ? AND address < ? ORDER BY address`)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("prepare get: %w", err)
+	}
+
+	stmtCount, err := db.Prepare(`SELECT COUNT(*) FROM registers`)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("prepare count: %w", err)
+	}
+
+	return &RegisterCache{
+		db:         db,
+		stmtUpsert: stmtUpsert,
+		stmtGet:    stmtGet,
+		stmtCount:  stmtCount,
+	}, nil
+}
+
+// Close releases database resources.
+func (c *RegisterCache) Close() error {
+	c.stmtUpsert.Close()
+	c.stmtGet.Close()
+	c.stmtCount.Close()
+	return c.db.Close()
 }
 
 // Set stores register values starting at the given address.
 func (c *RegisterCache) Set(address uint16, values []uint16) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
 
-	now := time.Now()
+	tx, err := c.db.Begin()
+	if err != nil {
+		slog.Warn("cache set: begin tx", "error", err)
+		return
+	}
+
+	stmt := tx.Stmt(c.stmtUpsert)
 	for i, v := range values {
-		addr := address + uint16(i)
-		c.registers[addr] = v
-		c.timestamps[addr] = now
+		addr := int(address) + i
+		if _, err := stmt.Exec(addr, int(v), now); err != nil {
+			tx.Rollback()
+			slog.Warn("cache set: exec", "address", addr, "error", err)
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Warn("cache set: commit", "error", err)
 	}
 }
 
@@ -45,16 +124,31 @@ func (c *RegisterCache) SetFromBytes(address uint16, data []byte) {
 // Get retrieves register values for the given address range.
 // Returns nil if any register in the range is not cached.
 func (c *RegisterCache) Get(address, count uint16) []uint16 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	rows, err := c.stmtGet.Query(int(address), int(address)+int(count))
+	if err != nil {
+		slog.Warn("cache get: query", "address", address, "count", count, "error", err)
+		return nil
+	}
+	defer rows.Close()
 
 	result := make([]uint16, count)
-	for i := uint16(0); i < count; i++ {
-		v, ok := c.registers[address+i]
-		if !ok {
+	found := 0
+	for rows.Next() {
+		var addr, val int
+		if err := rows.Scan(&addr, &val); err != nil {
+			slog.Warn("cache get: scan", "error", err)
 			return nil
 		}
-		result[i] = v
+		idx := addr - int(address)
+		if idx < 0 || idx >= int(count) {
+			continue
+		}
+		result[idx] = uint16(val)
+		found++
+	}
+
+	if found != int(count) {
+		return nil // all-or-nothing: every register in the range must be cached
 	}
 	return result
 }
@@ -77,7 +171,10 @@ func (c *RegisterCache) GetBytes(address, count uint16) []byte {
 
 // Size returns the number of cached registers.
 func (c *RegisterCache) Size() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return len(c.registers)
+	var count int
+	if err := c.stmtCount.QueryRow().Scan(&count); err != nil {
+		slog.Warn("cache size: query", "error", err)
+		return 0
+	}
+	return count
 }

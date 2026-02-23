@@ -15,6 +15,7 @@ type Config struct {
 	ForwardUnknownReads bool            `yaml:"forward_unknown_reads"`
 	RegisterGroups      []RegisterGroup `yaml:"register_groups"`
 	LogLevel            string          `yaml:"log_level"`
+	CachePath           string          `yaml:"cache_path"`
 }
 
 type InverterConfig struct {
@@ -77,6 +78,7 @@ func LoadConfig(path string) (*Config, error) {
 		},
 		ForwardUnknownReads: true,
 		LogLevel:            "info",
+		CachePath:           "cache.db",
 	}
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
