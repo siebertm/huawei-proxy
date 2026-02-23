@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // RegisterDef describes a single Modbus register entry.
 type RegisterDef struct {
@@ -345,6 +348,113 @@ func init() {
 		registerDefs[base] = RegisterDef{pfx + "_max_temperature", 1}
 		registerDefs[base+1] = RegisterDef{pfx + "_min_temperature", 1}
 	}
+}
+
+// RegType describes how to decode a register or group of registers.
+type RegType int
+
+const (
+	RegSTR RegType = iota // ASCII string, 2 bytes/register, null-trimmed
+	RegU16                // Unsigned 16-bit
+	RegI16                // Signed 16-bit (two's complement)
+	RegU32                // Unsigned 32-bit, big-endian (2 registers)
+	RegI32                // Signed 32-bit, big-endian (2 registers)
+)
+
+// DashboardField defines a single decoded metric for the web dashboard.
+type DashboardField struct {
+	Label   string
+	Address uint16
+	Type    RegType
+	Length  uint16  // number of registers to read
+	Gain    float64 // divisor (e.g. 1000 means divide raw value by 1000)
+	Unit    string  // display unit suffix (e.g. "kW", "°C")
+	Unit1   bool    // if true, only show for unit ID 1
+}
+
+var dashboardFields = []DashboardField{
+	{"Model", 30000, RegSTR, 15, 0, "", false},
+	{"Serial", 30015, RegSTR, 10, 0, "", false},
+	{"Solar DC Power", 32064, RegI32, 2, 1000, "kW", false},
+	{"AC Active Power", 32080, RegI32, 2, 1000, "kW", false},
+	{"Daily Yield", 32114, RegU32, 2, 100, "kWh", false},
+	{"Temperature", 32087, RegI16, 1, 10, "°C", false},
+	{"Device Status", 32089, RegU16, 1, 1, "", false},
+	{"Grid Power", 37113, RegI32, 2, 1000, "kW", true},
+	{"Battery SOC", 37760, RegU16, 1, 10, "%", true},
+	{"Battery Power", 37765, RegI32, 2, 1000, "kW", true},
+	{"Battery Charge Today", 37784, RegU32, 2, 100, "kWh", true},
+	{"Battery Discharge Today", 37786, RegU32, 2, 100, "kWh", true},
+}
+
+var deviceStatusNames = map[uint16]string{
+	0x0000: "Standby: initializing",
+	0x0001: "Grid-Connected",
+	0x0002: "Grid-Connected: power limited",
+	0x0003: "Fault: shutting down",
+	0x0004: "Shutdown",
+}
+
+// DecodeDashboardField reads registers from the cache and returns a
+// human-readable string. Returns "" if registers are not cached.
+func DecodeDashboardField(f DashboardField, cache *RegisterCache, unitID byte) string {
+	regs := cache.Get(unitID, f.Address, f.Length)
+	if regs == nil {
+		return ""
+	}
+
+	switch f.Type {
+	case RegSTR:
+		buf := make([]byte, 0, len(regs)*2)
+		for _, r := range regs {
+			buf = append(buf, byte(r>>8), byte(r))
+		}
+		// Truncate at first null byte — remaining bytes may contain garbage
+		if i := strings.IndexByte(string(buf), 0); i >= 0 {
+			buf = buf[:i]
+		}
+		return strings.TrimRight(string(buf), " ")
+
+	case RegU16:
+		val := float64(regs[0]) / f.Gain
+		if f.Label == "Device Status" {
+			if name, ok := deviceStatusNames[regs[0]]; ok {
+				return name
+			}
+			return fmt.Sprintf("Unknown (0x%04X)", regs[0])
+		}
+		return formatValue(val, f.Unit)
+
+	case RegI16:
+		val := float64(int16(regs[0])) / f.Gain
+		return formatValue(val, f.Unit)
+
+	case RegU32:
+		raw := uint32(regs[0])<<16 | uint32(regs[1])
+		val := float64(raw) / f.Gain
+		return formatValue(val, f.Unit)
+
+	case RegI32:
+		raw := int32(uint32(regs[0])<<16 | uint32(regs[1]))
+		val := float64(raw) / f.Gain
+		return formatValue(val, f.Unit)
+	}
+
+	return ""
+}
+
+func formatValue(val float64, unit string) string {
+	// Use appropriate precision: show decimals only when meaningful
+	var s string
+	if val == float64(int64(val)) {
+		s = fmt.Sprintf("%.0f", val)
+	} else {
+		s = fmt.Sprintf("%.2f", val)
+	}
+	if unit != "" {
+		s += " " + unit
+	}
+	return s
 }
 
 // RegisterName returns a human-readable name for a register address.

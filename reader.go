@@ -108,6 +108,16 @@ func (r *Reader) readGroup(ctx context.Context, unitID byte, g RegisterGroup) er
 		}
 	}
 
+	// If all retries exhausted on a retryable error, reconnect so the next
+	// read starts with a fresh TCP connection instead of looping on a dead one.
+	if IsDeviceBusy(lastErr) || IsTimeout(lastErr) || IsTransactionMismatch(lastErr) {
+		slog.Warn("all retries exhausted, reconnecting",
+			"name", g.Name,
+			"error", lastErr,
+		)
+		r.client.Reconnect()
+	}
+
 	return fmt.Errorf("reading %s (addr=%d, count=%d): %w", g.Name, g.Address, g.Count, lastErr)
 }
 
@@ -227,6 +237,11 @@ func (r *Reader) Run(ctx context.Context) {
 				}
 			}
 			lastSlowPoll = time.Now()
+
+			// Clean up stale registers
+			if deleted := r.cache.DeleteStale(r.cfg.CacheTTL()); deleted > 0 {
+				slog.Info("cache: deleted stale registers", "count", deleted)
+			}
 		}
 
 		cycleDur := time.Since(cycleStart)

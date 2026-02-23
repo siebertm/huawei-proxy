@@ -21,11 +21,12 @@ type CachedRegister struct {
 // RegisterCache is a SQLite-backed cache of Modbus register values.
 // Keys are register addresses, values are raw uint16 register values.
 type RegisterCache struct {
-	db         *sql.DB
-	stmtUpsert *sql.Stmt
-	stmtGet    *sql.Stmt
-	stmtCount  *sql.Stmt
-	stmtAll    *sql.Stmt
+	db              *sql.DB
+	stmtUpsert      *sql.Stmt
+	stmtGet         *sql.Stmt
+	stmtCount       *sql.Stmt
+	stmtAll         *sql.Stmt
+	stmtDeleteStale *sql.Stmt
 }
 
 func NewRegisterCache(dbPath string) (*RegisterCache, error) {
@@ -115,12 +116,19 @@ func NewRegisterCache(dbPath string) (*RegisterCache, error) {
 		return nil, fmt.Errorf("prepare all: %w", err)
 	}
 
+	stmtDeleteStale, err := db.Prepare(`DELETE FROM registers WHERE updated_at < ?`)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("prepare delete stale: %w", err)
+	}
+
 	return &RegisterCache{
-		db:         db,
-		stmtUpsert: stmtUpsert,
-		stmtGet:    stmtGet,
-		stmtCount:  stmtCount,
-		stmtAll:    stmtAll,
+		db:              db,
+		stmtUpsert:      stmtUpsert,
+		stmtGet:         stmtGet,
+		stmtCount:       stmtCount,
+		stmtAll:         stmtAll,
+		stmtDeleteStale: stmtDeleteStale,
 	}, nil
 }
 
@@ -130,6 +138,7 @@ func (c *RegisterCache) Close() error {
 	c.stmtGet.Close()
 	c.stmtCount.Close()
 	c.stmtAll.Close()
+	c.stmtDeleteStale.Close()
 	return c.db.Close()
 }
 
@@ -251,4 +260,17 @@ func (c *RegisterCache) Size() int {
 		return 0
 	}
 	return count
+}
+
+// DeleteStale removes registers that haven't been updated within maxAge.
+// Returns the number of deleted registers.
+func (c *RegisterCache) DeleteStale(maxAge time.Duration) int {
+	cutoff := time.Now().UTC().Add(-maxAge).Format(time.RFC3339Nano)
+	result, err := c.stmtDeleteStale.Exec(cutoff)
+	if err != nil {
+		slog.Warn("cache delete stale: exec", "error", err)
+		return 0
+	}
+	n, _ := result.RowsAffected()
+	return int(n)
 }

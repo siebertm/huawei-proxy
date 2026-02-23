@@ -17,6 +17,7 @@ type Config struct {
 	RegisterGroups      []RegisterGroup `yaml:"register_groups"`
 	LogLevel            string          `yaml:"log_level"`
 	CachePath           string          `yaml:"cache_path"`
+	CacheTTLH           int             `yaml:"cache_ttl_h"`
 }
 
 type InverterConfig struct {
@@ -58,6 +59,10 @@ func (c *Config) InverterTimeout() time.Duration {
 	return time.Duration(c.Inverter.TimeoutMs) * time.Millisecond
 }
 
+func (c *Config) CacheTTL() time.Duration {
+	return time.Duration(c.CacheTTLH) * time.Hour
+}
+
 func (c *Config) InverterAddr() string {
 	return fmt.Sprintf("%s:%d", c.Inverter.Host, c.Inverter.Port)
 }
@@ -87,6 +92,7 @@ func LoadConfig(path string) (*Config, error) {
 		ForwardUnknownReads: true,
 		LogLevel:            "info",
 		CachePath:           "cache.db",
+		CacheTTLH:           2,
 	}
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {

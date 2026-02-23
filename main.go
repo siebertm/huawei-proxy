@@ -92,6 +92,11 @@ func main() {
 	slog.Info("connected to inverter")
 	server.SetInverterClient(inverterClient)
 
+	// Clean stale registers from previous runs
+	if deleted := cache.DeleteStale(cfg.CacheTTL()); deleted > 0 {
+		slog.Info("cache: cleaned stale registers from previous run", "count", deleted, "ttl", cfg.CacheTTL())
+	}
+
 	// Create reader and do initial scan
 	reader := NewReader(cfg, inverterClient, cache)
 

@@ -42,6 +42,11 @@ log_level: "info"
 # Use ":memory:" for a pure in-memory cache (no persistence across restarts).
 cache_path: "cache.db"
 
+# Hours before stale registers are deleted from the cache (default: 2).
+# Registers not updated within this period are removed during slow poll cycles
+# and at startup.
+cache_ttl_h: 2
+
 # Register groups to poll from the inverter.
 # Each group is one Modbus read_holding_registers call.
 # Max 125 registers per group (Modbus protocol limit).

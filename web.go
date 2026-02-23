@@ -71,6 +71,18 @@ type unitRegisters struct {
 	Groups []registerGroup
 }
 
+// DashboardItem is a single decoded metric for the dashboard.
+type DashboardItem struct {
+	Label string
+	Value string
+}
+
+// UnitDashboard holds all decoded metrics for one unit ID.
+type UnitDashboard struct {
+	UnitID byte
+	Items  []DashboardItem
+}
+
 func (w *WebServer) handleIndex(rw http.ResponseWriter, r *http.Request) {
 	reader := w.reader.Load()
 	var stats ReaderStats
@@ -163,6 +175,25 @@ func (w *WebServer) handleIndex(rw http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Build dashboard: decode key metrics per unit ID
+	var dashboards []UnitDashboard
+	for _, uid := range w.cfg.Inverter.UnitIDs {
+		var items []DashboardItem
+		for _, f := range dashboardFields {
+			if f.Unit1 && uid != w.cfg.Inverter.UnitIDs[0] {
+				continue
+			}
+			val := DecodeDashboardField(f, w.cache, uid)
+			if val == "" {
+				continue
+			}
+			items = append(items, DashboardItem{Label: f.Label, Value: val})
+		}
+		if len(items) > 0 {
+			dashboards = append(dashboards, UnitDashboard{UnitID: uid, Items: items})
+		}
+	}
+
 	data := struct {
 		Config     *Config
 		Stats      ReaderStats
@@ -171,6 +202,7 @@ func (w *WebServer) handleIndex(rw http.ResponseWriter, r *http.Request) {
 		CacheSize  int
 		FastGroups int
 		SlowGroups int
+		Dashboards []UnitDashboard
 		Units      []unitRegisters
 	}{
 		Config:     w.cfg,
@@ -180,6 +212,7 @@ func (w *WebServer) handleIndex(rw http.ResponseWriter, r *http.Request) {
 		CacheSize:  len(allRegs),
 		FastGroups: fastGroups,
 		SlowGroups: slowGroups,
+		Dashboards: dashboards,
 		Units:      units,
 	}
 
@@ -282,6 +315,21 @@ const indexTemplate = `<!DOCTYPE html>
     </dl>
   </div>
 </div>
+
+{{if .Dashboards}}
+<div class="cards">
+{{range .Dashboards}}
+  <div class="card">
+    <h2>Unit {{.UnitID}}</h2>
+    <dl>
+    {{range .Items}}
+      <dt>{{.Label}}</dt><dd>{{.Value}}</dd>
+    {{end}}
+    </dl>
+  </div>
+{{end}}
+</div>
+{{end}}
 
 {{range .Units}}
 <h2 style="margin: 1.5rem 0 .75rem; font-size: 1.15rem;">Unit ID {{.UnitID}}</h2>
