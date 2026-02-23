@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+const (
+	maxRetries        = 3
+	deviceBusyBackoff = 3 * time.Second
+	reconnectBackoff  = 2 * time.Second
+	initialScanPasses = 3
+)
+
 // ReaderStats contains runtime statistics from the polling loop.
 type ReaderStats struct {
 	CycleCount    int64
@@ -54,37 +61,95 @@ func (r *Reader) readGroup(ctx context.Context, g RegisterGroup) error {
 		return ctx.Err()
 	}
 
-	data, err := r.client.ReadRegisters(g.Address, g.Count)
-	if err != nil {
-		return fmt.Errorf("reading %s (addr=%d, count=%d): %w", g.Name, g.Address, g.Count, err)
-	}
-
-	r.cache.SetFromBytes(g.Address, data)
-
-	slog.Debug("read register group",
-		"name", g.Name,
-		"address", g.Address,
-		"count", g.Count,
-	)
-
-	return nil
-}
-
-// InitialScan reads all groups (fast and slow) once to populate the cache
-// before the server starts accepting connections.
-func (r *Reader) InitialScan(ctx context.Context) error {
-	allGroups := make([]RegisterGroup, 0, len(r.fastGroups)+len(r.slowGroups))
-	allGroups = append(allGroups, r.fastGroups...)
-	allGroups = append(allGroups, r.slowGroups...)
-
-	for _, g := range allGroups {
-		if err := r.readGroup(ctx, g); err != nil {
-			// Log warning but continue — some groups may fail (e.g., battery
-			// registers when no battery is connected).
-			slog.Warn("initial scan: failed to read group",
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		data, err := r.client.ReadRegisters(g.Address, g.Count)
+		if err == nil {
+			r.cache.SetFromBytes(g.Address, data)
+			slog.Debug("read register group",
 				"name", g.Name,
 				"address", g.Address,
-				"error", err,
+				"count", g.Count,
+			)
+			return nil
+		}
+
+		lastErr = err
+
+		if IsDeviceBusy(err) || IsTimeout(err) {
+			if attempt < maxRetries {
+				slog.Warn("retryable error, retrying after backoff",
+					"name", g.Name,
+					"attempt", attempt,
+					"backoff", deviceBusyBackoff,
+					"error", err,
+				)
+				if err := sleepCtx(ctx, deviceBusyBackoff); err != nil {
+					return err
+				}
+				continue
+			}
+		} else if IsTransactionMismatch(err) {
+			if attempt < maxRetries {
+				slog.Warn("transaction ID mismatch, reconnecting",
+					"name", g.Name,
+					"attempt", attempt,
+				)
+				r.client.Reconnect()
+				if err := sleepCtx(ctx, reconnectBackoff); err != nil {
+					return err
+				}
+				continue
+			}
+		} else {
+			// Non-retryable error — return immediately
+			break
+		}
+	}
+
+	return fmt.Errorf("reading %s (addr=%d, count=%d): %w", g.Name, g.Address, g.Count, lastErr)
+}
+
+// sleepCtx sleeps for the given duration, returning early if the context
+// is cancelled.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
+}
+
+// InitialScan reads all groups (fast and slow) to populate the cache before
+// the server starts accepting connections. Groups that fail are retried in
+// additional passes, which handles inverter warm-up after TCP connect.
+func (r *Reader) InitialScan(ctx context.Context) error {
+	pending := make([]RegisterGroup, 0, len(r.fastGroups)+len(r.slowGroups))
+	pending = append(pending, r.fastGroups...)
+	pending = append(pending, r.slowGroups...)
+
+	for pass := 1; pass <= initialScanPasses; pass++ {
+		var failed []RegisterGroup
+		for _, g := range pending {
+			if err := r.readGroup(ctx, g); err != nil {
+				slog.Warn("initial scan: failed to read group",
+					"name", g.Name,
+					"address", g.Address,
+					"pass", pass,
+					"error", err,
+				)
+				failed = append(failed, g)
+			}
+		}
+		if len(failed) == 0 {
+			break
+		}
+		pending = failed
+		if pass < initialScanPasses {
+			slog.Info("initial scan: retrying failed groups",
+				"count", len(failed),
+				"pass", pass+1,
 			)
 		}
 	}

@@ -1,7 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"net"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -85,4 +89,40 @@ func (ic *InverterClient) WriteMultipleRegisters(address, count uint16, data []b
 	result, err := ic.client.WriteMultipleRegisters(address, count, data)
 	ic.lastRead = time.Now()
 	return result, err
+}
+
+// Reconnect closes the TCP connection and resets state so the next
+// operation triggers an automatic reconnect by the modbus library.
+func (ic *InverterClient) Reconnect() {
+	ic.mu.Lock()
+	defer ic.mu.Unlock()
+
+	ic.handler.Close()
+	ic.lastRead = time.Time{}
+}
+
+// IsDeviceBusy returns true if the error is a Modbus exception 0x06
+// (server device busy).
+func IsDeviceBusy(err error) bool {
+	var mbErr *modbus.ModbusError
+	if errors.As(err, &mbErr) {
+		return mbErr.ExceptionCode == modbus.ExceptionCodeServerDeviceBusy
+	}
+	return false
+}
+
+// IsTransactionMismatch returns true if the error indicates a Modbus TCP
+// transaction ID mismatch. The goburrow library reports this as a plain
+// fmt.Errorf, so we match on the error string.
+func IsTransactionMismatch(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "transaction id")
+}
+
+// IsTimeout returns true if the error is a network timeout (i/o timeout).
+func IsTimeout(err error) bool {
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return netErr.Timeout()
+	}
+	return errors.Is(err, os.ErrDeadlineExceeded)
 }
