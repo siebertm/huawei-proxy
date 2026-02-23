@@ -235,7 +235,7 @@ func (r *Reader) Run(ctx context.Context) {
 		r.lastCycleDur.Store(int64(cycleDur))
 
 		slog.Debug("fast cycle complete",
-			"duration", cycleDur.Round(time.Millisecond),
+			"duration", cycleDur.Round(time.Millisecond).String(),
 			"cached_registers", r.cache.Size(),
 		)
 	}

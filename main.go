@@ -61,7 +61,8 @@ func main() {
 	}
 	defer cache.Close()
 
-	// Start web UI early so it's available during startup
+	// Start web UI and Modbus server early — the persistent cache allows
+	// serving cached responses before the inverter connection is established.
 	var web *WebServer
 	if cfg.Web.Listen != "" {
 		web = NewWebServer(cfg, cache)
@@ -72,6 +73,14 @@ func main() {
 		}()
 	}
 
+	server := NewServer(cfg, cache)
+	go func() {
+		if err := server.ListenAndServe(ctx); err != nil {
+			slog.Error("server error", "error", err)
+			cancel()
+		}
+	}()
+
 	// Connect to inverter
 	slog.Info("connecting to inverter", "address", cfg.InverterAddr(), "unit_ids", cfg.Inverter.UnitIDs)
 	inverterClient, err := NewInverterClient(cfg)
@@ -81,6 +90,7 @@ func main() {
 	}
 	defer inverterClient.Close()
 	slog.Info("connected to inverter")
+	server.SetInverterClient(inverterClient)
 
 	// Create reader and do initial scan
 	reader := NewReader(cfg, inverterClient, cache)
@@ -96,15 +106,6 @@ func main() {
 		web.SetReader(reader)
 	}
 	go reader.Run(ctx)
-
-	// Start Modbus TCP server
-	server := NewServer(cfg, cache, inverterClient)
-	go func() {
-		if err := server.ListenAndServe(ctx); err != nil {
-			slog.Error("server error", "error", err)
-			cancel()
-		}
-	}()
 
 	// Wait for shutdown signal
 	sigCh := make(chan os.Signal, 1)

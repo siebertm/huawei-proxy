@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"sync/atomic"
 )
 
 // Server is a Modbus TCP server that serves register values from cache
@@ -14,15 +15,20 @@ import (
 type Server struct {
 	cfg            *Config
 	cache          *RegisterCache
-	inverterClient *InverterClient
+	inverterClient atomic.Pointer[InverterClient]
 }
 
-func NewServer(cfg *Config, cache *RegisterCache, inverterClient *InverterClient) *Server {
+func NewServer(cfg *Config, cache *RegisterCache) *Server {
 	return &Server{
-		cfg:            cfg,
-		cache:          cache,
-		inverterClient: inverterClient,
+		cfg:   cfg,
+		cache: cache,
 	}
+}
+
+// SetInverterClient attaches the inverter client once it's connected.
+// Before this is called, cache misses and writes return a device failure exception.
+func (s *Server) SetInverterClient(client *InverterClient) {
+	s.inverterClient.Store(client)
 }
 
 // ListenAndServe starts accepting Modbus TCP connections.
@@ -136,10 +142,11 @@ func (s *Server) handleReadRegisters(conn net.Conn, txID uint16, unitID byte, fc
 		return
 	}
 
-	// Cache miss
-	if s.cfg.ForwardUnknownReads {
+	// Cache miss — forward if enabled and inverter client is available
+	client := s.inverterClient.Load()
+	if s.cfg.ForwardUnknownReads && client != nil {
 		slog.Info("cache miss, forwarding to inverter", "unit_id", unitID, "address", address, "count", count)
-		result, err := s.inverterClient.ReadRegisters(unitID, address, count)
+		result, err := client.ReadRegisters(unitID, address, count)
 		if err != nil {
 			slog.Warn("forward read failed", "unit_id", unitID, "address", address, "count", count, "error", err)
 			sendException(conn, txID, unitID, fc, 0x04) // Server Device Failure
@@ -166,7 +173,14 @@ func (s *Server) handleWriteSingleRegister(conn net.Conn, txID uint16, unitID by
 
 	slog.Info("forwarding write single register", "unit_id", unitID, "address", address, "value", value)
 
-	_, err := s.inverterClient.WriteSingleRegister(unitID, address, value)
+	client := s.inverterClient.Load()
+	if client == nil {
+		slog.Warn("write single register: inverter not connected", "unit_id", unitID, "address", address)
+		sendException(conn, txID, unitID, 0x06, 0x04)
+		return
+	}
+
+	_, err := client.WriteSingleRegister(unitID, address, value)
 	if err != nil {
 		slog.Warn("write single register failed", "unit_id", unitID, "address", address, "error", err)
 		sendException(conn, txID, unitID, 0x06, 0x04) // Server Device Failure
@@ -199,7 +213,14 @@ func (s *Server) handleWriteMultipleRegisters(conn net.Conn, txID uint16, unitID
 
 	slog.Info("forwarding write multiple registers", "unit_id", unitID, "address", address, "count", count)
 
-	_, err := s.inverterClient.WriteMultipleRegisters(unitID, address, count, data)
+	client := s.inverterClient.Load()
+	if client == nil {
+		slog.Warn("write multiple registers: inverter not connected", "unit_id", unitID, "address", address)
+		sendException(conn, txID, unitID, 0x10, 0x04)
+		return
+	}
+
+	_, err := client.WriteMultipleRegisters(unitID, address, count, data)
 	if err != nil {
 		slog.Warn("write multiple registers failed", "unit_id", unitID, "address", address, "error", err)
 		sendException(conn, txID, unitID, 0x10, 0x04) // Server Device Failure
