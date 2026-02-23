@@ -5,7 +5,14 @@
   "description": "Modbus TCP caching proxy for Huawei SUN2000 solar inverters",
   "url": "https://github.com/siebertm/huawei-proxy",
   "arch": ["amd64", "aarch64", "armv7"],
-  "host_network": true,
+  "ports": {
+    "502/tcp": 502,
+    "8080/tcp": 8080
+  },
+  "ports_description": {
+    "502/tcp": "Modbus TCP proxy",
+    "8080/tcp": "Web UI"
+  },
   "init": false,
   "options": {
     "inverter_host": "",
