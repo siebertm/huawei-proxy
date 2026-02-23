@@ -22,7 +22,7 @@ type Config struct {
 type InverterConfig struct {
 	Host      string `yaml:"host"`
 	Port      int    `yaml:"port"`
-	UnitID    byte   `yaml:"unit_id"`
+	UnitIDs   []byte `yaml:"unit_ids"`
 	TimeoutMs int    `yaml:"timeout_ms"`
 }
 
@@ -71,7 +71,7 @@ func LoadConfig(path string) (*Config, error) {
 	cfg := &Config{
 		Inverter: InverterConfig{
 			Port:      502,
-			UnitID:    1,
+			UnitIDs:   []byte{1},
 			TimeoutMs: 5000,
 		},
 		Server: ServerConfig{
@@ -99,6 +99,19 @@ func LoadConfig(path string) (*Config, error) {
 
 	if len(cfg.RegisterGroups) == 0 {
 		return nil, fmt.Errorf("at least one register_group is required")
+	}
+
+	if len(cfg.Inverter.UnitIDs) == 0 {
+		return nil, fmt.Errorf("inverter.unit_ids is required (e.g. [1])")
+	}
+
+	// Validate no duplicate unit IDs
+	seen := make(map[byte]bool, len(cfg.Inverter.UnitIDs))
+	for _, uid := range cfg.Inverter.UnitIDs {
+		if seen[uid] {
+			return nil, fmt.Errorf("inverter.unit_ids: duplicate unit ID %d", uid)
+		}
+		seen[uid] = true
 	}
 
 	for i, g := range cfg.RegisterGroups {

@@ -56,17 +56,18 @@ func NewReader(cfg *Config, client *InverterClient, cache *RegisterCache) *Reade
 	return r
 }
 
-func (r *Reader) readGroup(ctx context.Context, g RegisterGroup) error {
+func (r *Reader) readGroup(ctx context.Context, unitID byte, g RegisterGroup) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 
 	var lastErr error
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		data, err := r.client.ReadRegisters(g.Address, g.Count)
+		data, err := r.client.ReadRegisters(unitID, g.Address, g.Count)
 		if err == nil {
-			r.cache.SetFromBytes(g.Address, data)
+			r.cache.SetFromBytes(unitID, g.Address, data)
 			slog.Debug("read register group",
+				"unit_id", unitID,
 				"name", g.Name,
 				"address", g.Address,
 				"count", g.Count,
@@ -121,25 +122,39 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// InitialScan reads all groups (fast and slow) to populate the cache before
-// the server starts accepting connections. Groups that fail are retried in
-// additional passes, which handles inverter warm-up after TCP connect.
+// unitGroup pairs a unit ID with a register group for initial scan tracking.
+type unitGroup struct {
+	unitID byte
+	group  RegisterGroup
+}
+
+// InitialScan reads all groups (fast and slow) for all unit IDs to populate
+// the cache before the server starts accepting connections. Groups that fail
+// are retried in additional passes, which handles inverter warm-up after TCP connect.
 func (r *Reader) InitialScan(ctx context.Context) error {
-	pending := make([]RegisterGroup, 0, len(r.fastGroups)+len(r.slowGroups))
-	pending = append(pending, r.fastGroups...)
-	pending = append(pending, r.slowGroups...)
+	allGroups := make([]RegisterGroup, 0, len(r.fastGroups)+len(r.slowGroups))
+	allGroups = append(allGroups, r.fastGroups...)
+	allGroups = append(allGroups, r.slowGroups...)
+
+	var pending []unitGroup
+	for _, g := range allGroups {
+		for _, uid := range r.cfg.Inverter.UnitIDs {
+			pending = append(pending, unitGroup{unitID: uid, group: g})
+		}
+	}
 
 	for pass := 1; pass <= initialScanPasses; pass++ {
-		var failed []RegisterGroup
-		for _, g := range pending {
-			if err := r.readGroup(ctx, g); err != nil {
+		var failed []unitGroup
+		for _, ug := range pending {
+			if err := r.readGroup(ctx, ug.unitID, ug.group); err != nil {
 				slog.Warn("initial scan: failed to read group",
-					"name", g.Name,
-					"address", g.Address,
+					"unit_id", ug.unitID,
+					"name", ug.group.Name,
+					"address", ug.group.Address,
 					"pass", pass,
 					"error", err,
 				)
-				failed = append(failed, g)
+				failed = append(failed, ug)
 			}
 		}
 		if len(failed) == 0 {
@@ -177,16 +192,20 @@ func (r *Reader) Run(ctx context.Context) {
 
 		cycleStart := time.Now()
 
-		// Read fast groups
+		// Read each fast group across all unit IDs before moving to the next group,
+		// so that the same register group is temporally coherent across units.
 		for _, g := range r.fastGroups {
-			if ctx.Err() != nil {
-				return
-			}
-			if err := r.readGroup(ctx, g); err != nil {
-				slog.Warn("failed to read register group",
-					"name", g.Name,
-					"error", err,
-				)
+			for _, uid := range r.cfg.Inverter.UnitIDs {
+				if ctx.Err() != nil {
+					return
+				}
+				if err := r.readGroup(ctx, uid, g); err != nil {
+					slog.Warn("failed to read register group",
+						"unit_id", uid,
+						"name", g.Name,
+						"error", err,
+					)
+				}
 			}
 		}
 
@@ -194,14 +213,17 @@ func (r *Reader) Run(ctx context.Context) {
 		if time.Since(lastSlowPoll) >= r.cfg.SlowInterval() {
 			slog.Debug("reading slow groups")
 			for _, g := range r.slowGroups {
-				if ctx.Err() != nil {
-					return
-				}
-				if err := r.readGroup(ctx, g); err != nil {
-					slog.Warn("failed to read register group",
-						"name", g.Name,
-						"error", err,
-					)
+				for _, uid := range r.cfg.Inverter.UnitIDs {
+					if ctx.Err() != nil {
+						return
+					}
+					if err := r.readGroup(ctx, uid, g); err != nil {
+						slog.Warn("failed to read register group",
+							"unit_id", uid,
+							"name", g.Name,
+							"error", err,
+						)
+					}
 				}
 			}
 			lastSlowPoll = time.Now()

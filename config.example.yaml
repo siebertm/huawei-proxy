@@ -11,7 +11,7 @@
 inverter:
   host: "192.168.200.1"     # Inverter IP address
   port: 502                  # Modbus TCP port (default: 502)
-  unit_id: 1                 # Modbus slave/unit ID (default: 1)
+  unit_ids: [1]              # Modbus slave/unit IDs (e.g. [1, 16] for two inverters)
   timeout_ms: 5000           # Read/write timeout in milliseconds
 
 # Modbus TCP server that HA connects to

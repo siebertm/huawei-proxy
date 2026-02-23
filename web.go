@@ -65,6 +65,12 @@ type registerGroup struct {
 	Registers []CachedRegister
 }
 
+// unitRegisters groups register groups by unit ID for the web template.
+type unitRegisters struct {
+	UnitID byte
+	Groups []registerGroup
+}
+
 func (w *WebServer) handleIndex(rw http.ResponseWriter, r *http.Request) {
 	reader := w.reader.Load()
 	var stats ReaderStats
@@ -77,63 +83,95 @@ func (w *WebServer) handleIndex(rw http.ResponseWriter, r *http.Request) {
 	allRegs := w.cache.All()
 	now := time.Now()
 
-	// Build address-to-group-name lookup and ordered groups
+	// Build address range lookup
 	type addrRange struct {
 		start, end uint16
 		index      int
 	}
-	groups := make([]registerGroup, len(w.cfg.RegisterGroups))
 	ranges := make([]addrRange, len(w.cfg.RegisterGroups))
 	for i, g := range w.cfg.RegisterGroups {
-		groups[i] = registerGroup{
-			Name:    g.Name,
-			Address: g.Address,
-			Count:   g.Count,
-			Poll:    g.Poll,
-		}
 		ranges[i] = addrRange{start: g.Address, end: g.Address + g.Count, index: i}
 	}
 
-	// Assign registers to groups
-	var ungrouped []CachedRegister
+	// Group registers by unit ID, then by register group
+	unitMap := make(map[byte][]registerGroup)
+	unitUngrouped := make(map[byte][]CachedRegister)
+
+	// Initialize groups per unit ID
+	for _, uid := range w.cfg.Inverter.UnitIDs {
+		groups := make([]registerGroup, len(w.cfg.RegisterGroups))
+		for i, g := range w.cfg.RegisterGroups {
+			groups[i] = registerGroup{
+				Name:    g.Name,
+				Address: g.Address,
+				Count:   g.Count,
+				Poll:    g.Poll,
+			}
+		}
+		unitMap[uid] = groups
+	}
+
+	// Assign registers to groups per unit
 	for _, reg := range allRegs {
+		groups, ok := unitMap[reg.UnitID]
+		if !ok {
+			// Unit ID not in config (e.g. stale cache), create groups on the fly
+			groups = make([]registerGroup, len(w.cfg.RegisterGroups))
+			for i, g := range w.cfg.RegisterGroups {
+				groups[i] = registerGroup{
+					Name:    g.Name,
+					Address: g.Address,
+					Count:   g.Count,
+					Poll:    g.Poll,
+				}
+			}
+			unitMap[reg.UnitID] = groups
+		}
+
 		found := false
 		for _, ar := range ranges {
 			if reg.Address >= ar.start && reg.Address < ar.end {
-				groups[ar.index].Registers = append(groups[ar.index].Registers, reg)
+				unitMap[reg.UnitID][ar.index].Registers = append(unitMap[reg.UnitID][ar.index].Registers, reg)
 				found = true
 				break
 			}
 		}
 		if !found {
-			ungrouped = append(ungrouped, reg)
+			unitUngrouped[reg.UnitID] = append(unitUngrouped[reg.UnitID], reg)
 		}
 	}
 
-	// Filter to non-empty groups
-	var activeGroups []registerGroup
-	for _, g := range groups {
-		if len(g.Registers) > 0 {
-			activeGroups = append(activeGroups, g)
+	// Build ordered list of units
+	var units []unitRegisters
+	for _, uid := range w.cfg.Inverter.UnitIDs {
+		groups := unitMap[uid]
+		var activeGroups []registerGroup
+		for _, g := range groups {
+			if len(g.Registers) > 0 {
+				activeGroups = append(activeGroups, g)
+			}
 		}
-	}
-	if len(ungrouped) > 0 {
-		activeGroups = append(activeGroups, registerGroup{
-			Name:      "ungrouped",
-			Poll:      "-",
-			Registers: ungrouped,
-		})
+		if ung := unitUngrouped[uid]; len(ung) > 0 {
+			activeGroups = append(activeGroups, registerGroup{
+				Name:      "ungrouped",
+				Poll:      "-",
+				Registers: ung,
+			})
+		}
+		if len(activeGroups) > 0 {
+			units = append(units, unitRegisters{UnitID: uid, Groups: activeGroups})
+		}
 	}
 
 	data := struct {
-		Config       *Config
-		Stats        ReaderStats
-		Uptime       time.Duration
-		Now          time.Time
-		CacheSize    int
-		FastGroups   int
-		SlowGroups   int
-		Groups       []registerGroup
+		Config     *Config
+		Stats      ReaderStats
+		Uptime     time.Duration
+		Now        time.Time
+		CacheSize  int
+		FastGroups int
+		SlowGroups int
+		Units      []unitRegisters
 	}{
 		Config:     w.cfg,
 		Stats:      stats,
@@ -142,7 +180,7 @@ func (w *WebServer) handleIndex(rw http.ResponseWriter, r *http.Request) {
 		CacheSize:  len(allRegs),
 		FastGroups: fastGroups,
 		SlowGroups: slowGroups,
-		Groups:     activeGroups,
+		Units:      units,
 	}
 
 	tmpl, err := template.New("index").Funcs(template.FuncMap{
@@ -219,7 +257,7 @@ const indexTemplate = `<!DOCTYPE html>
     <h2>Connection</h2>
     <dl>
       <dt>Inverter</dt><dd>{{.Config.InverterAddr}}</dd>
-      <dt>Unit ID</dt><dd>{{.Config.Inverter.UnitID}}</dd>
+      <dt>Unit IDs</dt><dd>{{range $i, $uid := .Config.Inverter.UnitIDs}}{{if $i}}, {{end}}{{$uid}}{{end}}</dd>
       <dt>Modbus Server</dt><dd>{{.Config.Server.Listen}}</dd>
       <dt>Forward Unknown</dt><dd>{{.Config.ForwardUnknownReads}}</dd>
     </dl>
@@ -245,6 +283,8 @@ const indexTemplate = `<!DOCTYPE html>
   </div>
 </div>
 
+{{range .Units}}
+<h2 style="margin: 1.5rem 0 .75rem; font-size: 1.15rem;">Unit ID {{.UnitID}}</h2>
 {{range .Groups}}
 <div class="group">
   <div class="group-header">
@@ -270,6 +310,7 @@ const indexTemplate = `<!DOCTYPE html>
     </tbody>
   </table>
 </div>
+{{end}}
 {{end}}
 
 <footer>Auto-refreshes every 5s &middot; {{.Now.Format "15:04:05"}}</footer>

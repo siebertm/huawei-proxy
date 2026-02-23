@@ -73,7 +73,7 @@ func main() {
 	}
 
 	// Connect to inverter
-	slog.Info("connecting to inverter", "address", cfg.InverterAddr(), "unit_id", cfg.Inverter.UnitID)
+	slog.Info("connecting to inverter", "address", cfg.InverterAddr(), "unit_ids", cfg.Inverter.UnitIDs)
 	inverterClient, err := NewInverterClient(cfg)
 	if err != nil {
 		slog.Error("failed to connect to inverter", "error", err)

@@ -129,24 +129,24 @@ func (s *Server) handleReadRegisters(conn net.Conn, txID uint16, unitID byte, fc
 	}
 
 	// Try cache first
-	data := s.cache.GetBytes(address, count)
+	data := s.cache.GetBytes(unitID, address, count)
 	if data != nil {
-		slog.Debug("cache hit", "address", address, "count", count)
+		slog.Debug("cache hit", "unit_id", unitID, "address", address, "count", count)
 		sendReadResponse(conn, txID, unitID, fc, data)
 		return
 	}
 
 	// Cache miss
 	if s.cfg.ForwardUnknownReads {
-		slog.Info("cache miss, forwarding to inverter", "address", address, "count", count)
-		result, err := s.inverterClient.ReadRegisters(address, count)
+		slog.Info("cache miss, forwarding to inverter", "unit_id", unitID, "address", address, "count", count)
+		result, err := s.inverterClient.ReadRegisters(unitID, address, count)
 		if err != nil {
-			slog.Warn("forward read failed", "address", address, "count", count, "error", err)
+			slog.Warn("forward read failed", "unit_id", unitID, "address", address, "count", count, "error", err)
 			sendException(conn, txID, unitID, fc, 0x04) // Server Device Failure
 			return
 		}
 		// Cache the forwarded result
-		s.cache.SetFromBytes(address, result)
+		s.cache.SetFromBytes(unitID, address, result)
 		sendReadResponse(conn, txID, unitID, fc, result)
 		return
 	}
@@ -164,17 +164,17 @@ func (s *Server) handleWriteSingleRegister(conn net.Conn, txID uint16, unitID by
 	address := binary.BigEndian.Uint16(pdu[1:3])
 	value := binary.BigEndian.Uint16(pdu[3:5])
 
-	slog.Info("forwarding write single register", "address", address, "value", value)
+	slog.Info("forwarding write single register", "unit_id", unitID, "address", address, "value", value)
 
-	_, err := s.inverterClient.WriteSingleRegister(address, value)
+	_, err := s.inverterClient.WriteSingleRegister(unitID, address, value)
 	if err != nil {
-		slog.Warn("write single register failed", "address", address, "error", err)
+		slog.Warn("write single register failed", "unit_id", unitID, "address", address, "error", err)
 		sendException(conn, txID, unitID, 0x06, 0x04) // Server Device Failure
 		return
 	}
 
 	// Update cache
-	s.cache.Set(address, []uint16{value})
+	s.cache.Set(unitID, address, []uint16{value})
 
 	// Response echoes back address + value
 	sendWriteSingleResponse(conn, txID, unitID, address, value)
@@ -197,17 +197,17 @@ func (s *Server) handleWriteMultipleRegisters(conn net.Conn, txID uint16, unitID
 
 	data := pdu[6 : 6+byteCount]
 
-	slog.Info("forwarding write multiple registers", "address", address, "count", count)
+	slog.Info("forwarding write multiple registers", "unit_id", unitID, "address", address, "count", count)
 
-	_, err := s.inverterClient.WriteMultipleRegisters(address, count, data)
+	_, err := s.inverterClient.WriteMultipleRegisters(unitID, address, count, data)
 	if err != nil {
-		slog.Warn("write multiple registers failed", "address", address, "error", err)
+		slog.Warn("write multiple registers failed", "unit_id", unitID, "address", address, "error", err)
 		sendException(conn, txID, unitID, 0x10, 0x04) // Server Device Failure
 		return
 	}
 
 	// Update cache
-	s.cache.SetFromBytes(address, data)
+	s.cache.SetFromBytes(unitID, address, data)
 
 	sendWriteMultipleResponse(conn, txID, unitID, address, count)
 }
