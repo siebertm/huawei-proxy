@@ -90,11 +90,12 @@ func (r *Reader) readGroup(ctx context.Context, unitID byte, g RegisterGroup) er
 				}
 				continue
 			}
-		} else if IsTransactionMismatch(err) {
+		} else if IsTransactionMismatch(err) || IsConnectionError(err) {
 			if attempt < maxRetries {
-				slog.Warn("transaction ID mismatch, reconnecting",
+				slog.Warn("connection error, reconnecting",
 					"name", g.Name,
 					"attempt", attempt,
+					"error", err,
 				)
 				r.client.Reconnect()
 				if err := sleepCtx(ctx, reconnectBackoff); err != nil {
@@ -110,7 +111,7 @@ func (r *Reader) readGroup(ctx context.Context, unitID byte, g RegisterGroup) er
 
 	// If all retries exhausted on a retryable error, reconnect so the next
 	// read starts with a fresh TCP connection instead of looping on a dead one.
-	if IsDeviceBusy(lastErr) || IsTimeout(lastErr) || IsTransactionMismatch(lastErr) {
+	if IsDeviceBusy(lastErr) || IsTimeout(lastErr) || IsTransactionMismatch(lastErr) || IsConnectionError(lastErr) {
 		slog.Warn("all retries exhausted, reconnecting",
 			"name", g.Name,
 			"error", lastErr,

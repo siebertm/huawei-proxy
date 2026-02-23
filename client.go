@@ -128,3 +128,18 @@ func IsTimeout(err error) bool {
 	}
 	return errors.Is(err, os.ErrDeadlineExceeded)
 }
+
+// IsConnectionError returns true if the error indicates a broken TCP
+// connection (broken pipe, connection reset, EOF).
+func IsConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "EOF")
+}
