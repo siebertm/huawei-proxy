@@ -36,12 +36,13 @@ The Huawei SUN2000 inverter requires a 500ms pause between Modbus reads and only
 ## Home Assistant setup
 
 1. Install the add-on and configure `inverter_host`
-2. In the **huawei_solar** integration, point the Modbus connection to your HA host IP on the configured `modbus_listen_port` (default: `502`)
-3. The web UI is available at the configured `web_listen_port` (default: `8080`) — click "Open Web UI" in the add-on panel
+2. The add-on exposes port `502` (Modbus TCP) and port `8080` (Web UI) by default. You can remap these in the add-on's **Network** configuration panel if they conflict with other services.
+3. In the **huawei_solar** integration, point the Modbus connection to your HA host IP on the mapped Modbus port (default: `502`)
+4. The web UI is available via the mapped web port (default: `8080`) — click "Open Web UI" in the add-on panel
 
 ## Troubleshooting
 
-- **HA can't connect**: Make sure `modbus_listen_port` is not in use by another add-on. Try `1502` if port `502` conflicts.
+- **HA can't connect**: Check that the Modbus port mapping is correct in the add-on's Network settings. Remap to another host port (e.g., `1502`) if port `502` conflicts.
 - **Stale data**: Reduce `cache_ttl_h` or check the web UI to see when registers were last updated.
 - **Inverter unresponsive**: Increase `read_pause_ms` (try `750` or `1000`).
 - **Missing battery/meter entities**: Enable `has_battery` or `has_power_meter` in the add-on configuration.
