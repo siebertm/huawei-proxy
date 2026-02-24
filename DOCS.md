@@ -20,8 +20,6 @@ The Huawei SUN2000 inverter requires a 500ms pause between Modbus reads and only
 
 - **inverter_port**: Modbus TCP port on the inverter (default: `502`)
 - **unit_ids**: Comma-separated Modbus unit/slave IDs to poll (default: `1`). Use `1,16` for two inverters on the same connection.
-- **modbus_listen_port**: Port the proxy listens on for Modbus TCP connections from HA (default: `502`)
-- **web_listen_port**: Port for the web status UI (default: `8080`)
 - **read_pause_ms**: Minimum milliseconds between Modbus reads (default: `500`). The inverter needs this gap to stay responsive.
 - **slow_interval_s**: Seconds between slow-tier polls for device info and configuration registers (default: `300`)
 - **forward_unknown_reads**: Forward cache misses to the inverter (default: `true`). Required for HA's initial device detection.
@@ -36,9 +34,9 @@ The Huawei SUN2000 inverter requires a 500ms pause between Modbus reads and only
 ## Home Assistant setup
 
 1. Install the add-on and configure `inverter_host`
-2. The add-on exposes port `502` (Modbus TCP) and port `8080` (Web UI) by default. You can remap these in the add-on's **Network** configuration panel if they conflict with other services.
+2. The add-on exposes port `502` (Modbus TCP) by default. You can remap this in the add-on's **Network** configuration panel if it conflicts with other services.
 3. In the **huawei_solar** integration, point the Modbus connection to your HA host IP on the mapped Modbus port (default: `502`)
-4. The web UI is available via the mapped web port (default: `8080`) — click "Open Web UI" in the add-on panel
+4. The web UI is available via HA's ingress — click "Open Web UI" in the add-on panel (no separate port needed)
 
 ## Troubleshooting
 

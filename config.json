@@ -6,20 +6,18 @@
   "url": "https://github.com/siebertm/huawei-proxy",
   "arch": ["amd64", "aarch64", "armv7"],
   "ports": {
-    "502/tcp": 502,
-    "8080/tcp": 8080
+    "502/tcp": 502
   },
   "ports_description": {
-    "502/tcp": "Modbus TCP proxy",
-    "8080/tcp": "Web status UI"
+    "502/tcp": "Modbus TCP proxy"
   },
+  "ingress": true,
+  "ingress_port": 8080,
   "init": false,
   "options": {
     "inverter_host": "",
     "inverter_port": 502,
     "unit_ids": "1",
-    "modbus_listen_port": 502,
-    "web_listen_port": 8080,
     "read_pause_ms": 500,
     "slow_interval_s": 300,
     "forward_unknown_reads": true,
@@ -32,8 +30,6 @@
     "inverter_host": "str",
     "inverter_port": "port",
     "unit_ids": "str",
-    "modbus_listen_port": "port",
-    "web_listen_port": "port",
     "read_pause_ms": "int(100,5000)",
     "slow_interval_s": "int(60,3600)",
     "forward_unknown_reads": "bool",
@@ -42,5 +38,5 @@
     "has_battery": "bool",
     "has_power_meter": "bool"
   },
-  "webui": "http://[HOST]:[PORT:8080]"
+  "ingress_entry": "/"
 }

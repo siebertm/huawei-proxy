@@ -13,8 +13,6 @@ type HAOptions struct {
 	InverterHost        string `json:"inverter_host"`
 	InverterPort        int    `json:"inverter_port"`
 	UnitIDs             string `json:"unit_ids"`
-	ModbusListenPort    int    `json:"modbus_listen_port"`
-	WebListenPort       int    `json:"web_listen_port"`
 	ReadPauseMs         int    `json:"read_pause_ms"`
 	SlowIntervalS       int    `json:"slow_interval_s"`
 	ForwardUnknownReads bool   `json:"forward_unknown_reads"`
@@ -34,8 +32,6 @@ func LoadHAOptions(path string) (*Config, error) {
 	opts := &HAOptions{
 		InverterPort:        502,
 		UnitIDs:             "1",
-		ModbusListenPort:    502,
-		WebListenPort:       8080,
 		ReadPauseMs:         500,
 		SlowIntervalS:       300,
 		ForwardUnknownReads: true,
@@ -79,10 +75,10 @@ func LoadHAOptions(path string) (*Config, error) {
 			TimeoutMs: 5000,
 		},
 		Server: ServerConfig{
-			Listen: fmt.Sprintf(":%d", opts.ModbusListenPort),
+			Listen: ":502",
 		},
 		Web: WebConfig{
-			Listen: fmt.Sprintf(":%d", opts.WebListenPort),
+			Listen: ":8080",
 		},
 		Polling: PollingConfig{
 			ReadPauseMs:   opts.ReadPauseMs,
