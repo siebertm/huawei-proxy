@@ -18,6 +18,13 @@ type CachedRegister struct {
 	UpdatedAt time.Time
 }
 
+// PendingWrite holds a group of register values to be written in a batch.
+type PendingWrite struct {
+	UnitID  byte
+	Address uint16
+	Values  []uint16
+}
+
 // RegisterCache is a SQLite-backed cache of Modbus register values.
 // Keys are register addresses, values are raw uint16 register values.
 type RegisterCache struct {
@@ -195,13 +202,50 @@ func (c *RegisterCache) Set(unitID byte, address uint16, values []uint16) {
 	}
 }
 
-// SetFromBytes stores register values from raw Modbus response bytes (big-endian).
-func (c *RegisterCache) SetFromBytes(unitID byte, address uint16, data []byte) {
+// bytesToUint16 converts raw Modbus response bytes (big-endian) to uint16 register values.
+func bytesToUint16(data []byte) []uint16 {
 	values := make([]uint16, len(data)/2)
 	for i := range values {
 		values[i] = uint16(data[i*2])<<8 | uint16(data[i*2+1])
 	}
-	c.Set(unitID, address, values)
+	return values
+}
+
+// SetFromBytes stores register values from raw Modbus response bytes (big-endian).
+func (c *RegisterCache) SetFromBytes(unitID byte, address uint16, data []byte) {
+	c.Set(unitID, address, bytesToUint16(data))
+}
+
+// BatchSet writes multiple groups of register values in a single SQLite transaction.
+// This ensures that readers see either all-old or all-new data, never a mix.
+func (c *RegisterCache) BatchSet(writes []PendingWrite) {
+	if len(writes) == 0 {
+		return
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+
+	tx, err := c.db.Begin()
+	if err != nil {
+		slog.Warn("cache batch set: begin tx", "error", err)
+		return
+	}
+
+	stmt := tx.Stmt(c.stmtUpsert)
+	for _, w := range writes {
+		for i, v := range w.Values {
+			addr := int(w.Address) + i
+			if _, err := stmt.Exec(int(w.UnitID), addr, int(v), now); err != nil {
+				tx.Rollback()
+				slog.Warn("cache batch set: exec", "unit_id", w.UnitID, "address", addr, "error", err)
+				return
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Warn("cache batch set: commit", "error", err)
+	}
 }
 
 // Get retrieves register values for the given unit ID and address range.

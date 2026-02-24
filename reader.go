@@ -56,23 +56,22 @@ func NewReader(cfg *Config, client *InverterClient, cache *RegisterCache) *Reade
 	return r
 }
 
-func (r *Reader) readGroup(ctx context.Context, unitID byte, g RegisterGroup) error {
+func (r *Reader) readGroup(ctx context.Context, unitID byte, g RegisterGroup) ([]byte, error) {
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return nil, ctx.Err()
 	}
 
 	var lastErr error
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		data, err := r.client.ReadRegisters(unitID, g.Address, g.Count)
 		if err == nil {
-			r.cache.SetFromBytes(unitID, g.Address, data)
 			slog.Debug("read register group",
 				"unit_id", unitID,
 				"name", g.Name,
 				"address", g.Address,
 				"count", g.Count,
 			)
-			return nil
+			return data, nil
 		}
 
 		lastErr = err
@@ -86,7 +85,7 @@ func (r *Reader) readGroup(ctx context.Context, unitID byte, g RegisterGroup) er
 					"error", err,
 				)
 				if err := sleepCtx(ctx, deviceBusyBackoff); err != nil {
-					return err
+					return nil, err
 				}
 				continue
 			}
@@ -99,7 +98,7 @@ func (r *Reader) readGroup(ctx context.Context, unitID byte, g RegisterGroup) er
 				)
 				r.client.Reconnect()
 				if err := sleepCtx(ctx, reconnectBackoff); err != nil {
-					return err
+					return nil, err
 				}
 				continue
 			}
@@ -119,7 +118,7 @@ func (r *Reader) readGroup(ctx context.Context, unitID byte, g RegisterGroup) er
 		r.client.Reconnect()
 	}
 
-	return fmt.Errorf("reading %s (addr=%d, count=%d): %w", g.Name, g.Address, g.Count, lastErr)
+	return nil, fmt.Errorf("reading %s (addr=%d, count=%d): %w", g.Name, g.Address, g.Count, lastErr)
 }
 
 // sleepCtx sleeps for the given duration, returning early if the context
@@ -156,8 +155,10 @@ func (r *Reader) InitialScan(ctx context.Context) error {
 
 	for pass := 1; pass <= initialScanPasses; pass++ {
 		var failed []unitGroup
+		var batch []PendingWrite
 		for _, ug := range pending {
-			if err := r.readGroup(ctx, ug.unitID, ug.group); err != nil {
+			data, err := r.readGroup(ctx, ug.unitID, ug.group)
+			if err != nil {
 				slog.Warn("initial scan: failed to read group",
 					"unit_id", ug.unitID,
 					"name", ug.group.Name,
@@ -166,8 +167,15 @@ func (r *Reader) InitialScan(ctx context.Context) error {
 					"error", err,
 				)
 				failed = append(failed, ug)
+			} else {
+				batch = append(batch, PendingWrite{
+					UnitID:  ug.unitID,
+					Address: ug.group.Address,
+					Values:  bytesToUint16(data),
+				})
 			}
 		}
+		r.cache.BatchSet(batch)
 		if len(failed) == 0 {
 			break
 		}
@@ -202,6 +210,7 @@ func (r *Reader) Run(ctx context.Context) {
 		}
 
 		cycleStart := time.Now()
+		var batch []PendingWrite
 
 		// Read each fast group across all unit IDs before moving to the next group,
 		// so that the same register group is temporally coherent across units.
@@ -210,12 +219,19 @@ func (r *Reader) Run(ctx context.Context) {
 				if ctx.Err() != nil {
 					return
 				}
-				if err := r.readGroup(ctx, uid, g); err != nil {
+				data, err := r.readGroup(ctx, uid, g)
+				if err != nil {
 					slog.Warn("failed to read register group",
 						"unit_id", uid,
 						"name", g.Name,
 						"error", err,
 					)
+				} else {
+					batch = append(batch, PendingWrite{
+						UnitID:  uid,
+						Address: g.Address,
+						Values:  bytesToUint16(data),
+					})
 				}
 			}
 		}
@@ -228,12 +244,19 @@ func (r *Reader) Run(ctx context.Context) {
 					if ctx.Err() != nil {
 						return
 					}
-					if err := r.readGroup(ctx, uid, g); err != nil {
+					data, err := r.readGroup(ctx, uid, g)
+					if err != nil {
 						slog.Warn("failed to read register group",
 							"unit_id", uid,
 							"name", g.Name,
 							"error", err,
 						)
+					} else {
+						batch = append(batch, PendingWrite{
+							UnitID:  uid,
+							Address: g.Address,
+							Values:  bytesToUint16(data),
+						})
 					}
 				}
 			}
@@ -244,6 +267,9 @@ func (r *Reader) Run(ctx context.Context) {
 				slog.Info("cache: deleted stale registers", "count", deleted)
 			}
 		}
+
+		// Flush all reads to cache in a single atomic transaction
+		r.cache.BatchSet(batch)
 
 		cycleDur := time.Since(cycleStart)
 		r.cycleCount.Add(1)
