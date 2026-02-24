@@ -1,6 +1,6 @@
 {
   "name": "Huawei Solar Proxy",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "slug": "huawei-solar-proxy",
   "description": "Modbus TCP caching proxy for Huawei SUN2000 solar inverters",
   "url": "https://github.com/siebertm/huawei-proxy",
