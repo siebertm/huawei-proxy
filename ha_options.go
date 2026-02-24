@@ -4,15 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
 )
 
 // HAOptions mirrors the schema in config.json (HA add-on options).
 type HAOptions struct {
 	InverterHost        string `json:"inverter_host"`
 	InverterPort        int    `json:"inverter_port"`
-	UnitIDs             string `json:"unit_ids"`
+	UnitIDs             []int  `json:"unit_ids"`
 	ReadPauseMs         int    `json:"read_pause_ms"`
 	SlowIntervalS       int    `json:"slow_interval_s"`
 	ForwardUnknownReads bool   `json:"forward_unknown_reads"`
@@ -31,7 +29,7 @@ func LoadHAOptions(path string) (*Config, error) {
 
 	opts := &HAOptions{
 		InverterPort:        502,
-		UnitIDs:             "1",
+		UnitIDs:             []int{1},
 		ReadPauseMs:         500,
 		SlowIntervalS:       300,
 		ForwardUnknownReads: true,
@@ -47,24 +45,15 @@ func LoadHAOptions(path string) (*Config, error) {
 		return nil, fmt.Errorf("inverter_host is required")
 	}
 
-	parts := strings.Split(opts.UnitIDs, ",")
-	unitIDs := make([]byte, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		id, err := strconv.Atoi(p)
-		if err != nil {
-			return nil, fmt.Errorf("unit_ids: %q is not a valid integer", p)
-		}
+	if len(opts.UnitIDs) == 0 {
+		return nil, fmt.Errorf("unit_ids: at least one unit ID is required")
+	}
+	unitIDs := make([]byte, len(opts.UnitIDs))
+	for i, id := range opts.UnitIDs {
 		if id < 1 || id > 247 {
 			return nil, fmt.Errorf("unit_ids: %d out of range 1-247", id)
 		}
-		unitIDs = append(unitIDs, byte(id))
-	}
-	if len(unitIDs) == 0 {
-		return nil, fmt.Errorf("unit_ids: at least one unit ID is required")
+		unitIDs[i] = byte(id)
 	}
 
 	cfg := &Config{
