@@ -122,7 +122,7 @@ register_groups:
 
 ### Tuning for your setup
 
-- **No battery?** Remove `storage_unit_1`, `storage_aggregated`, `storage_unit_2`, `storage_versions`, `battery_soh`, `battery_packs_*`, `storage_config_*`, and `capacity_control` groups
+- **No battery?** Remove `storage_unit_1`, `storage_aggregated`, `storage_unit_2`, `battery_soh`, `battery_packs_*`, `storage_config_*`, and `capacity_control` groups
 - **No power meter?** Remove the `meter` group
 - **Fewer PV strings?** Reduce `pv_strings` count (2 registers per string)
 - **Want faster updates?** Lower `read_pause_ms` (not recommended below 300ms)

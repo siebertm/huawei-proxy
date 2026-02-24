@@ -112,56 +112,17 @@ register_groups:
     # REMOVE if no battery installed
 
   # ── SLOW GROUPS (device info & config, every 5 minutes) ─────────────
+  #
+  # NOTE: Many device info registers (30000-31210) are only read by HA
+  # during initial device detection, not periodically. With
+  # forward_unknown_reads: true, those are handled automatically.
+  # Only rated_power and P_max are polled every 30s by HA entities.
 
-  - name: device_info_1
-    address: 30000
-    count: 65
+  - name: rated_power
+    address: 30073
+    count: 4
     poll: slow
-    # model_name, serial_number, pn, firmware_version, software_version
-
-  - name: device_info_2
-    address: 30068
-    count: 44
-    poll: slow
-    # protocol_version, model_id, nb_pv_strings, rated_power, P_max, etc.
-
-  - name: device_features
-    address: 30206
-    count: 14
-    poll: slow
-    # hardware_functional_unit_conf_id, subdevice flags, feature masks
-
-  - name: hw_versions_1
-    address: 31000
-    count: 70
-    poll: slow
-    # hardware_version, monitoring_board_sn, monitoring_software_version,
-    # master_dsp_version, slave_dsp_version
-
-  - name: hw_versions_2
-    address: 31070
-    count: 90
-    poll: slow
-    # cpld_version, afci_version, builtin_pid_version, dc_mbus_version,
-    # el_module_version, afci_2_version
-
-  - name: diagnostics
-    address: 32172
-    count: 20
-    poll: slow
-    # alarm SNs, bus voltages, PV voltages
-
-  - name: mppt_yields
-    address: 32212
-    count: 20
-    poll: slow
-    # cumulative DC energy yield per MPPT (1-10)
-
-  - name: component_health
-    address: 35000
-    count: 45
-    poll: slow
-    # capbank/fan runtime, module temps, DCI, leakage, bus voltages
+    # rated_power, P_max (only registers HA polls from device_info range)
 
   - name: optimizer_info
     address: 37200
@@ -176,12 +137,6 @@ register_groups:
     # Storage unit 2: serial, SOC, running status, charge/discharge,
     # bus voltage/current, temperature, totals
     # REMOVE if no second battery unit
-
-  - name: storage_versions
-    address: 37799
-    count: 30
-    poll: slow
-    # Software versions for storage units 1 and 2
 
   - name: battery_soh
     address: 37920
@@ -207,21 +162,11 @@ register_groups:
     poll: slow
     # Unit 2 packs 2-3 + all pack temperatures (38452-38463)
 
-  - name: system_time
-    address: 40000
-    count: 2
-    poll: slow
-
   - name: inverter_config
     address: 40122
     count: 10
     poll: slow
     # power_factor, reactive power, active power derating
-
-  - name: startup_shutdown
-    address: 40200
-    count: 2
-    poll: slow
 
   - name: grid_mppt_config
     address: 42054
@@ -248,12 +193,6 @@ register_groups:
     count: 4
     poll: slow
     # active_power_control_mode, maximum_feed_grid_power
-
-  - name: storage_config_3
-    address: 47750
-    count: 6
-    poll: slow
-    # battery pack numbers
 
   - name: capacity_control
     address: 47954

@@ -95,18 +95,12 @@ func defaultRegisterGroups(hasBattery, hasPowerMeter bool) []RegisterGroup {
 		{Name: "energy_yield", Address: 32106, Count: 14, Poll: "fast"},
 
 		// Slow groups (device info & config, every 5 minutes)
-		{Name: "device_info_1", Address: 30000, Count: 65, Poll: "slow"},
-		{Name: "device_info_2", Address: 30068, Count: 44, Poll: "slow"},
-		{Name: "device_features", Address: 30206, Count: 14, Poll: "slow"},
-		{Name: "hw_versions_1", Address: 31000, Count: 70, Poll: "slow"},
-		{Name: "hw_versions_2", Address: 31070, Count: 90, Poll: "slow"},
-		{Name: "diagnostics", Address: 32172, Count: 20, Poll: "slow"},
-		{Name: "mppt_yields", Address: 32212, Count: 20, Poll: "slow"},
-		{Name: "component_health", Address: 35000, Count: 45, Poll: "slow"},
+		// Only registers that HA actually polls periodically are included.
+		// Device info/versions/diagnostics are only read at startup and
+		// handled by forward_unknown_reads.
+		{Name: "rated_power", Address: 30073, Count: 4, Poll: "slow"},
 		{Name: "optimizer_info", Address: 37200, Count: 2, Poll: "slow"},
-		{Name: "system_time", Address: 40000, Count: 2, Poll: "slow"},
 		{Name: "inverter_config", Address: 40122, Count: 10, Poll: "slow"},
-		{Name: "startup_shutdown", Address: 40200, Count: 2, Poll: "slow"},
 		{Name: "grid_mppt_config", Address: 42054, Count: 4, Poll: "slow"},
 		{Name: "power_control", Address: 47415, Count: 4, Poll: "slow"},
 	}
@@ -127,14 +121,12 @@ func defaultRegisterGroups(hasBattery, hasPowerMeter bool) []RegisterGroup {
 		// Slow battery groups
 		groups = append(groups,
 			RegisterGroup{Name: "storage_unit_2", Address: 37700, Count: 58, Poll: "slow"},
-			RegisterGroup{Name: "storage_versions", Address: 37799, Count: 30, Poll: "slow"},
 			RegisterGroup{Name: "battery_soh", Address: 37920, Count: 8, Poll: "slow"},
 			RegisterGroup{Name: "battery_packs_1", Address: 38200, Count: 84, Poll: "slow"},
 			RegisterGroup{Name: "battery_packs_2", Address: 38284, Count: 84, Poll: "slow"},
 			RegisterGroup{Name: "battery_packs_3", Address: 38368, Count: 96, Poll: "slow"},
 			RegisterGroup{Name: "storage_config_1", Address: 47000, Count: 109, Poll: "slow"},
 			RegisterGroup{Name: "storage_config_2", Address: 47200, Count: 100, Poll: "slow"},
-			RegisterGroup{Name: "storage_config_3", Address: 47750, Count: 6, Poll: "slow"},
 			RegisterGroup{Name: "capacity_control", Address: 47954, Count: 67, Poll: "slow"},
 		)
 	}
